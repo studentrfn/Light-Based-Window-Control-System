@@ -1,0 +1,55 @@
+module adcinterface(
+input logic clk, reset_n, // clock and reset
+input logic [2:0] chan, // ADC channel to sample
+input logic ADC_SDO,
+output logic ADC_CONVST, ADC_SCK, ADC_SDI,
+output logic [11:0] result // ADC result
+);
+
+logic [15:0] ADCconfig=15'h2200;
+logic [4:0]count=0;
+logic state=0;
+logic [2:0] chan2=0;
+logic skip=0;
+logic working=0;
+
+assign ADC_SCK = (state) ? clk : 1'b0;
+always_ff @(negedge clk) begin // always block to compute output  
+
+	if(count==0) begin
+		ADC_CONVST<=1;
+		state<=0;		
+		ADC_SDI<=0;	
+		ADCconfig<={1'b1, chan[0], chan[2:1], 1'b1, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0};	
+	end else begin
+		ADC_CONVST<=0;		
+	end
+	if (count==2) begin	 
+	    if (skip) chan2<=chan2+1;	
+            state<=1;
+	end
+	
+	if (count>1 && count<8) begin	
+		ADC_SDI<=ADCconfig[11-count];
+                
+	end 	else ADC_SDI<=0;
+	count<=count+1;	
+	if(count>13) begin
+		skip<=~skip;
+		count<=0;
+		state<=0;				
+	end
+	
+end
+
+always_ff @(posedge clk) begin 
+	if (count==2)   result<=0;
+	if (count<15 && count>2) begin			
+                result[14-count]<=ADC_SDO;
+	end
+
+end
+
+
+
+endmodule

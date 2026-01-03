@@ -1,0 +1,31 @@
+module LuxReceiver (
+    input logic clk,            // System clock
+    input logic reset_n,        // Active-low reset
+    input logic gpio_data,      // Serial LUX data from Tiva (1 bit at a time)
+    input logic gpio_ready,     // "READY" signal indicating data is valid
+    output logic [7:0] lux_value // Stored LUX value
+);
+
+    logic [7:0] shift_reg;       // Shift register to store incoming data
+    logic [2:0] bit_count;       // Counter to track 8-bit data collection
+
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            shift_reg <= 8'b0;
+            lux_value <= 8'b0;
+            bit_count <= 0;
+        end 
+        else if (gpio_ready) begin
+            // Shift incoming bit into the register
+            shift_reg <= {shift_reg[6:0], gpio_data};
+            
+            // Track how many bits have been received
+            if (bit_count < 7) 
+                bit_count <= bit_count + 1;
+            else begin
+                bit_count <= 0;
+                lux_value <= shift_reg; // Store the completed LUX data
+            end
+        end
+    end
+endmodule

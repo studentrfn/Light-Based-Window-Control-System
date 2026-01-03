@@ -1,0 +1,33 @@
+module servo_control (
+    input logic clk,               // 50 MHz system clock
+    input logic reset_n,           // active-low reset
+    input logic [3:0] chan,        // from 0 to 9
+    output logic servo_pwm         // PWM signal to servo
+);
+
+    // Map 0–9 to pulse width range: 1ms (50,000) to 2ms (100,000)
+    logic [19:0] pulse_width;
+    always_comb begin
+        pulse_width = 50000 + (chan * 5555); // 5555 * 9 = ~50k → total = 100k
+    end
+
+    // 20ms period = 1,000,000 counts at 50 MHz
+    logic [19:0] counter;
+
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n)
+            counter <= 0;
+        else if (counter >= 1_000_000)
+            counter <= 0;
+        else
+            counter <= counter + 1;
+    end
+
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n)
+            servo_pwm <= 0;
+        else
+            servo_pwm <= (counter < pulse_width);
+    end
+
+endmodule

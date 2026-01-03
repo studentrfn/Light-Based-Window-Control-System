@@ -1,0 +1,157 @@
+#include <Wire.h>
+#include <Screen_HX8353E.h>
+
+#define OPT3001_ADDRESS   0x44
+#define RESULT_REGISTER   0x00
+#define CONFIG_REGISTER   0x01
+
+// Updated GPIO Pin Assignments
+#define GPIO_DATA_PIN      11    // GPIO data transmission pin
+#define GPIO_READY_PIN     12    // READY signal pin
+#define MANUAL_CLOCK_PIN   13    // Dedicated clock signal pin (avoiding I2C conflict)
+
+Screen_HX8353E myScreen;
+
+int bufferedLux = 0;     
+char luxDisplay[10];
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin();
+    Wire.setModule(1);  // Use I²C1 on Tiva C (PA6/SCL & PA7/SDA)
+
+    // GPIO setup for FPGA communication
+    pinMode(GPIO_DATA_PIN, OUTPUT);
+    pinMode(GPIO_READY_PIN, OUTPUT);
+    pinMode(MANUAL_CLOCK_PIN, OUTPUT);
+
+    digitalWrite(GPIO_READY_PIN, LOW);
+    digitalWrite(MANUAL_CLOCK_PIN, LOW);
+
+    myScreen.begin();
+    myScreen.setOrientation(0);
+    myScreen.clear(darkGrayColour);
+
+    myScreen.setPenSolid(false);  
+    myScreen.dRectangle(2, 2, myScreen.screenSizeX() - 4, myScreen.screenSizeY() - 4, yellowColour);
+
+    myScreen.setFontSize(1);
+    myScreen.gText(10, 10, "ILLUMINANCE", yellowColour);
+
+    configureOPT3001();
+    Serial.println(" OPT3001 Sensor Initialized!");
+}
+
+void loop() {
+    uint16_t rawData = readRegister16(RESULT_REGISTER);
+    bufferedLux = int(convertToLUX(rawData));
+
+    if (bufferedLux > 999) bufferedLux = 999;
+
+    Serial.print("🌞 LUX Reading (Integer): ");
+    Serial.println(bufferedLux);
+
+    snprintf(luxDisplay, sizeof(luxDisplay), "%d LUX", bufferedLux);
+    myScreen.setFontSize(3);  
+    myScreen.gText(10, 40, luxDisplay, whiteColour);
+
+    sendLuxDataToFPGA(bufferedLux);
+
+}
+
+// ======================= Utility Functions =======================
+
+void sendLuxDataToFPGA(uint16_t data) {
+    digitalWrite(GPIO_READY_PIN, HIGH); // Start transmission
+    delayMicroseconds(500);  // Stabilize the "READY" signal
+
+    // Send START BIT
+  
+    digitalWrite(MANUAL_CLOCK_PIN, HIGH);
+    delayMicroseconds(200);  
+    digitalWrite(MANUAL_CLOCK_PIN, LOW);
+    delayMicroseconds(200);  
+
+    // Send 12-bit Data
+    for (int i = 11; i >= 0; i--) {
+        bool bitValue = (data >> i) & 0x01;
+        digitalWrite(GPIO_DATA_PIN, bitValue);
+
+        digitalWrite(MANUAL_CLOCK_PIN, HIGH);
+        delayMicroseconds(200);  
+        digitalWrite(MANUAL_CLOCK_PIN, LOW);
+        delayMicroseconds(200);  
+    }
+
+    digitalWrite(GPIO_READY_PIN, LOW); // End transmission
+    delayMicroseconds(500);  // Stabilize before next reading
+}
+
+
+void configureOPT3001() {
+    Wire.beginTransmission(OPT3001_ADDRESS);
+    Wire.write(CONFIG_REGISTER);
+    Wire.write(0xC4);  
+    Wire.write(0x10);
+    Wire.endTransmission();
+}
+
+uint16_t readRegister16(uint8_t reg) {
+    Wire.beginTransmission(OPT3001_ADDRESS);
+    Wire.write(reg);
+    Wire.endTransmission();
+
+    Wire.requestFrom(OPT3001_ADDRESS, 2);
+    if (Wire.available() == 2) {
+        return (Wire.read() << 8) | Wire.read();
+    } else {
+        Serial.println(" Error: Failed to Read Data!");
+        return 0xFFFF;
+    }
+}
+
+float convertToLUX(uint16_t rawData) {
+    uint16_t exponent = (rawData >> 12) & 0x0F;
+    uint16_t mantissa = rawData & 0x0FFF;
+
+    return mantissa * (0.01 * (1 << exponent));
+}
+
+
+
+
+module LuxReceiver (
+    input logic clk,             // System clock (50 MHz)
+    input logic reset_n,         // Active-low reset
+    input logic gpio_data,       // Incoming data from Tiva
+    input logic manual_clk,      // Manual Clock signal
+    input logic gpio_ready,      // "READY" signal from Tiva
+    output logic [11:0] lux_value // 12-bit LUX value
+);
+
+    logic [11:0] shift_reg;     // Single 12-bit shift register
+    logic [3:0] bit_count;      // Track total received bits (0-11)
+
+    always_ff @(posedge manual_clk or negedge reset_n) begin
+        if (!reset_n) begin
+            shift_reg <= 12'b0;
+            lux_value <= 12'b0;
+            bit_count <= 0;
+        end 
+        else if (gpio_ready) begin
+            shift_reg <= {shift_reg[10:0], gpio_data};  // Shift in data
+            
+            if (bit_count == 11) begin
+                lux_value <= {shift_reg[10:0], gpio_data};  // Capture last bit in value
+                bit_count <= 0;         
+                shift_reg <= 12'b0;     // Reset shift register
+            end 
+            else begin
+                bit_count <= bit_count + 1;
+            end
+        end
+    end
+endmodule
+
+
+

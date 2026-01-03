@@ -1,0 +1,37 @@
+module bcd_conversion (
+    input logic [11:0] lux_value ,  // four bits number
+    output logic [11:0]lux_value_bcd // activation of 7 segment display
+);
+
+
+    logic [3:0] bcd_hundreds;
+    logic [3:0] bcd_tens;
+    logic [3:0] bcd_ones;
+
+    always_comb begin
+        
+        bcd_hundreds = 4'b0;
+        bcd_tens = 4'b0;
+        bcd_ones = 4'b0;
+
+        // Shift and add 3 if needed (double-dabble algorithm)
+        for (int i = 11; i >= 0; i--) begin
+            if (bcd_hundreds >= 5) 
+                bcd_hundreds = bcd_hundreds + 3;
+            if (bcd_tens >= 5) 
+                bcd_tens = bcd_tens + 3;
+            if (bcd_ones >= 5) 
+                bcd_ones = bcd_ones + 3;
+
+            // Shift BCD digits
+            bcd_hundreds = {bcd_hundreds[2:0], bcd_tens[3]};
+            bcd_tens = {bcd_tens[2:0], bcd_ones[3]};
+            bcd_ones = {bcd_ones[2:0], binary[11]};
+            binary = binary << 1;
+        end
+    end
+
+    // Combine three BCD digits into a single 12-bit BCD result
+    assign lux_value_bcd = {bcd_hundreds, bcd_tens, bcd_ones};
+
+endmodule

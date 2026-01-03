@@ -1,0 +1,99 @@
+module adcinterface(
+    input logic clk, reset_n,   // 50 MHz Clock and reset
+    input logic [2:0] chan,     // ADC channel to sample
+    output logic [11:0] result, // ADC result
+
+    // LTC2308 signals
+    output logic ADC_CONVST, ADC_SCK, ADC_SDI,
+    input logic ADC_SDO
+);
+
+    // FSM State Definition
+    typedef enum logic [2:0] {
+        IDLE         = 3'b000,
+        START_CONV   = 3'b001,
+        WAIT_CONV    = 3'b010,
+        TRANSFER     = 3'b011,  // **6 cycles for config + 12 cycles for ADC data**
+        WAIT_CYCLE   = 3'b100
+    } state_t;
+
+    state_t state;
+    logic [11:0] config_word;  
+    logic [11:0] adc_reg;    
+    logic [4:0] bit_count;  // Increase to 5 bits (0-17)  
+
+    always_comb begin
+        config_word = {1'b1, chan[0], chan[2:1], 1'b1, 1'b0};   // Correct config word format
+    end
+
+    // ✅ Correct ADC_SCK Timing (Full 18-bit sequence)
+    assign ADC_SCK = (state == TRANSFER && bit_count < 18) ? clk : 1'b0;
+
+    // ✅ FSM for ADC Conversion Process
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            state <= IDLE;
+            ADC_CONVST <= 1'b0;
+            bit_count <= 0;
+        end else begin
+            case (state)
+                IDLE: begin
+                    state <= START_CONV;
+                end
+
+                START_CONV: begin
+                    ADC_CONVST <= 1'b1;   // Pulse HIGH
+                    bit_count <= 0;       // Reset bit counter
+                    state <= WAIT_CONV;
+                end
+
+                WAIT_CONV: begin
+                    ADC_CONVST <= 1'b0;   // Pulse LOW
+                    state <= TRANSFER;    // Start transfer (6 send + 12 receive)
+                end
+
+                TRANSFER: begin
+                    if (bit_count < 18) begin  // ✅ Fix: Run for full 18-bit sequence
+                        bit_count <= bit_count + 1;
+                    end else begin
+                        bit_count <= 0;
+                        state <= WAIT_CYCLE;  
+                    end
+                end
+
+                WAIT_CYCLE: begin
+                    state <= IDLE;
+                end
+            endcase
+        end
+    end 
+
+    // ✅ Send Configuration Word on **Rising Edge** of ADC_SCK
+    always_ff @(posedge ADC_SCK or negedge reset_n) begin
+        if (!reset_n)
+            ADC_SDI <= 1'b0;
+        else if (state == TRANSFER && bit_count < 6)
+            ADC_SDI <= config_word[5 - bit_count];  // ✅ Fix: Correct Bit Order
+
+        // ✅ Debugging Output
+        $display("Time=%0t | bit_count=%d | ADC_SDI=%b | Sent Bit=%b", 
+                 $time, bit_count, ADC_SDI, config_word[5 - bit_count]);
+    end 
+
+    // ✅ Capture ADC Data on **Rising Edge** of ADC_SCK (Fix: 6-17 bit range)
+    always_ff @(posedge ADC_SCK or negedge reset_n) begin
+        if (!reset_n)
+            adc_reg <= 12'b0;
+        else if (state == TRANSFER && bit_count >= 6 && bit_count < 18) begin
+            adc_reg <= {adc_reg[10:0], ADC_SDO};  // ✅ Shift in Data Correctly
+            if (bit_count == 17) begin
+                result <= adc_reg;  
+            end 
+        end 
+
+        // ✅ Debugging Output
+        $display("Time=%0t | bit_count=%d | ADC_SDO=%b | Shifted Data=%b", 
+                 $time, bit_count, ADC_SDO, adc_reg);
+    end
+
+endmodule

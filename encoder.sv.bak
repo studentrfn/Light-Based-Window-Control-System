@@ -1,0 +1,29 @@
+module encoder (
+    input logic clk,          // Clock signal
+    input logic a, b,         // Rotary encoder inputs
+    output logic cw, ccw      // Clockwise and counterclockwise pulses
+);
+
+    // Internal registers for current and previous states
+    logic [1:0] prev_state, curr_state;
+
+    // Update states on the clock's rising edge
+    always_ff @(posedge clk) begin
+        prev_state <= curr_state;
+        curr_state <= {a, b};
+    end
+
+    // Determine the direction of rotation
+    always_comb begin
+        cw = 1'b0;
+        ccw = 1'b0;
+        case ({prev_state, curr_state})
+            4'b0001, 4'b0111, 4'b1110, 4'b1000: cw = 1'b1;  // Clockwise transitions
+            4'b0010, 4'b1011, 4'b1101, 4'b0100: ccw = 1'b1; // Counterclockwise transitions
+            default: begin
+                cw = 1'b0;
+                ccw = 1'b0;
+            end
+        endcase
+    end
+endmodule

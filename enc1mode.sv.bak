@@ -1,0 +1,82 @@
+//Irfan Hacioglu 9 Feb 2025
+//Lab4 This module converts the the rotation into desired channel values
+
+module enc1mode(
+    input logic cw, ccw,       // Clockwise & Counterclockwise pulses from encoder
+    output logic [3:0] chan,  // Output chan
+    input logic reset_n, clk   // Reset and clock
+);
+
+    logic [3:0] note_index;
+    logic [31:0] notes [0:1];
+
+    // Define the channel
+    always_comb begin
+        notes[0] = 0; 
+        notes[1] = 1; 
+      
+    end
+		// for pulse 
+	 logic  pulse_count1;
+	 logic  pulse_count2;
+	 logic [2:0] pulse_count10;
+	 logic [2:0] pulse_count20;
+	 
+	 always_ff @(posedge clk) begin
+        
+        if (cw) begin
+        
+				pulse_count10 <= pulse_count10 + 1;	 
+				 
+            if (pulse_count10 == 3) begin 
+						pulse_count1 <= 1; 
+						pulse_count10 <= 0; 
+						 		
+            end
+				else pulse_count1 <= 0; 
+					
+				
+        end 
+		  
+		  else if (ccw) begin  
+        
+				pulse_count20 <= pulse_count20 + 1;
+				 
+            if (pulse_count20 == 3) 
+				begin     
+                pulse_count2 <= 1; 
+					 pulse_count20 <= 0;
+ 					
+			   end
+				
+				else pulse_count2 <= 0;			
+				 
+			end	
+	end		
+	 
+	  // Edge detection for `pulsecount1` and `pulsecount2`
+    logic pulse_count1_last, pulse_count2_last;
+    
+    always_ff @(posedge clk) begin
+        pulse_count1_last <= pulse_count1;
+        pulse_count2_last <= pulse_count2;
+    end
+	 
+
+    // Create a cycle for desired channel based on rotation
+	 
+    always_ff @(posedge clk or negedge reset_n) begin
+        if (!reset_n)
+            note_index <= 0;
+        else if (pulse_count1 && !pulse_count1_last && note_index < 1) 
+            note_index <= note_index + 1;
+        else if (pulse_count2 && !pulse_count2_last && note_index > 0) 
+            note_index <= note_index - 1;
+    end
+
+    // Assign correct channel as an ouput variable
+    assign chan = notes[note_index];
+
+endmodule
+
+
